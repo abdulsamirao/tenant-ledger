@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from schemas import TenantCreate
+from db import conn, cursor
 
 app = FastAPI()
 
@@ -15,5 +16,15 @@ def get_tenants():
 
 @app.post("/tenants")
 def create_tenant(tenant: TenantCreate):
-    tenants.append(tenant)
-    return {"message": "Tenant created successfully", "tenant": tenant}
+
+    cursor.execute("""INSERT INTO tenants (name, rent)
+    VALUES (%s, %s)
+    RETURNING id;
+    """,
+    (tenant.name, tenant.rent)
+    )
+
+    tenantid = cursor.fetchone()[0]
+    conn.commit()
+
+    return {"message": "Tenant created successfully", "tenant id": tenantid}
