@@ -11,8 +11,11 @@ def health_check():
     return {"status": "ok"}
 
 @app.get("/tenants")
-def get_tenants():
-    return tenants
+def get_tenants(i: int):
+    conn, cursor = get_connection()
+    cursor.execute("SELECT (id,name,rent) FROM tenants")
+    rows = cursor.fetchall()
+    return {"Tenant info: ": rows[i-1]}
 
 @app.post("/tenants")
 def create_tenant(tenant: TenantCreate):
