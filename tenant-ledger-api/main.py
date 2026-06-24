@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from schemas import TenantCreate
-from db import conn, cursor
+from db import get_connection
 
 app = FastAPI()
 
@@ -16,6 +16,7 @@ def get_tenants():
 
 @app.post("/tenants")
 def create_tenant(tenant: TenantCreate):
+    conn, cursor = get_connection()
 
     cursor.execute("""INSERT INTO tenants (name, rent)
     VALUES (%s, %s)
