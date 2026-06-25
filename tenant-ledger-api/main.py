@@ -4,8 +4,6 @@ from db import get_connection
 
 app = FastAPI()
 
-tenants = []
-
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
