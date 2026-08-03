@@ -1,12 +1,7 @@
 import psycopg2
-from dotenv import load_dotenv
-import os
+from config import app_settings
 
-# Load environment variables from .env
-load_dotenv(dotenv_path=".env")
-
-# Fetch variables
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = app_settings.database_url
 
 # prevent error where the URL includes "DATABASE_URL="
 if DATABASE_URL and DATABASE_URL.startswith("DATABASE_URL="):
