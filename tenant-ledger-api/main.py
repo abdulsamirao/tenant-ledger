@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from schemas import TenantCreate, UserCreate, PropertyCreate
 from db import get_connection
+from security import hash_password, verify_password
 
 app = FastAPI()
 
@@ -8,7 +9,7 @@ app = FastAPI()
 @app.post("/register")
 def create_user(user: UserCreate):
 
-    hashed_pw = hash(user.password)
+    hashed_pw = hash_password(user.password)
 
     conn, cursor = get_connection()
     cursor.execute("""INSERT INTO users (name, password)
@@ -25,15 +26,25 @@ def create_user(user: UserCreate):
 @app.post("/login")
 def user_login(username: str, password:str):
     entered_username = username
-    entered_pw_hash = hash(password)
+    entered_hash = hash_password(password)
 
     conn,cursor = get_connection()
-    cursor.execute("SELECT (id,username,password_hash) FROM users WHERE users.username='entered_username'")
-    rows = cursor.fetchall
+    cursor.execute("""SELECT (id,username,password_hash) FROM users WHERE users.username=(%s,)"""
+                    ,entered_username
+                    )
+    row = cursor.fetchone()
 
-    #return error message if user doesnt exist
-    #return message "incorrect username or password" if password_hash != entered_pw_hash
-    #else return main page to the application?
+    if row == None:
+        return {"message": "Login Failed. Invalid Username or Password"}
+    
+    stored_hash = row[2]
+
+    login_status = verify_password(entered_hash, stored_hash)
+
+    if not login_status:
+        return {"message": "Login Failed. Invalid Username or Password"}
+    else:
+        return #jwt token
 
 
 @app.post("/properties")
