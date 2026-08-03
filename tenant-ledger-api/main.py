@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from schemas import TenantCreate, UserCreate, PropertyCreate
+from schemas import TenantCreate, UserCreate, PropertyCreate, UserLogin
 from db import get_connection
 from security import hash_password, verify_password
 
@@ -12,25 +12,24 @@ def create_user(user: UserCreate):
     hashed_pw = hash_password(user.password)
 
     conn, cursor = get_connection()
-    cursor.execute("""INSERT INTO users (name, password)
+    cursor.execute("""INSERT INTO users (username, password_hash)
     VALUES (%s,%s)
     returning id;
     """,
     (user.username, hashed_pw)
     )
-    user_id = cursor.fetchall()[0]
-    conn.commit
+    user_id = cursor.fetchone()[0]
+    conn.commit()
 
     return {"message": "User created successfully", "user_id": user_id}
 
 @app.post("/login")
-def user_login(username: str, password:str):
-    entered_username = username
-    entered_hash = hash_password(password)
+def user_login(user: UserLogin):
+    entered_username = user.username
 
     conn,cursor = get_connection()
-    cursor.execute("""SELECT (id,username,password_hash) FROM users WHERE users.username=(%s,)"""
-                    ,entered_username
+    cursor.execute("""SELECT id,username,password_hash FROM users WHERE users.username=%s"""
+                    ,(entered_username,)
                     )
     row = cursor.fetchone()
 
@@ -39,12 +38,13 @@ def user_login(username: str, password:str):
     
     stored_hash = row[2]
 
-    login_status = verify_password(entered_hash, stored_hash)
+    login_status = verify_password(user.password, stored_hash)
 
     if not login_status:
         return {"message": "Login Failed. Invalid Username or Password"}
     else:
-        return #jwt token
+        return {"message": "Login successful", "JWT_Token": "TOKEN"}
+    
 
 
 @app.post("/properties")
@@ -55,8 +55,8 @@ def property_create(owner_id: int, property: PropertyCreate):
     RETURNING id;""",
     (owner_id, property.name, property.address)
     )
-    property_id = cursor.fetchall()[0]
-    conn.commit
+    property_id = cursor.fetchone()[0]
+    conn.commit()
     return {"message": "property created successfully", "property_id": property_id}
 
 @app.get("/properties")
