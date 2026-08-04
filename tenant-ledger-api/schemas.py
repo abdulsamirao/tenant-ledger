@@ -19,7 +19,7 @@ class TenantCreate(BaseModel):
     name: str
     phone: str
     monthly_rent: int
-    due_day: int
+    rent_due_day: int
     is_active: bool = True
 
 
