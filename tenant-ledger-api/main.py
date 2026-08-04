@@ -1,7 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from schemas import TenantCreate, UserCreate, PropertyCreate, UserLogin
 from db import get_connection
-from security import hash_password, verify_password
+from security import hash_password, verify_password, create_access_token, get_current_user
 
 app = FastAPI()
 
@@ -43,12 +43,15 @@ def user_login(user: UserLogin):
     if not login_status:
         return {"message": "Login Failed. Invalid Username or Password"}
     else:
-        return {"message": "Login successful", "JWT_Token": "TOKEN"}
+        access_token = create_access_token(payload={"sub": str(row[0])})
+
+        return {"message": "Login successful", "access_token": access_token, "token_type": "bearer"}
     
 
 
 @app.post("/properties")
-def property_create(owner_id: int, property: PropertyCreate):
+def property_create(property: PropertyCreate, current_user = Depends(get_current_user)):
+    owner_id = current_user["sub"]
     conn, cursor = get_connection()
 
     cursor.execute("""INSERT INTO properties (owner_id, name, address) VALUES (%s,%s,%s)
@@ -77,6 +80,7 @@ def get_tenants(i: int):
     conn, cursor = get_connection()
     cursor.execute("SELECT (id,name,rent) FROM tenants")
     rows = cursor.fetchall()
+    conn.commit()
     return {"Tenant info: ": rows[i-1]}
 
 @app.post("/tenants")
