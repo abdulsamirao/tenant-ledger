@@ -1,10 +1,14 @@
-from fastapi import FastAPI, Depends
-from schemas import TenantCreate, UserCreate, PropertyCreate, UserLogin
+from fastapi import FastAPI, Depends, HTTPException, status
+from schemas import TenantCreate, UserCreate, PropertyCreate, UserLogin, ChargeCreate
 from db import get_connection
-from security import hash_password, verify_password, create_access_token, get_current_user
+from security import hash_password, verify_password, create_access_token, get_current_user, NoAccess_Exception
 
 app = FastAPI()
 
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
 
 @app.post("/register")
 def create_user(user: UserCreate):
@@ -50,7 +54,7 @@ def user_login(user: UserLogin):
 
 
 @app.post("/properties")
-def property_create(property: PropertyCreate, current_user = Depends(get_current_user)):
+def create_property(property: PropertyCreate, current_user = Depends(get_current_user)):
     owner_id = current_user["sub"]
     conn, cursor = get_connection()
 
@@ -62,39 +66,59 @@ def property_create(property: PropertyCreate, current_user = Depends(get_current
     conn.commit()
     return {"message": "property created successfully", "property_id": property_id}
 
+
 @app.get("/properties")
-def get_property(i: int):
+def get_properties(current_user = Depends(get_current_user)):
+    owner_id = current_user["sub"]
     conn, cursor = get_connection()
-    cursor.execute("SELECT (id,name,address) FROM properties")
+    cursor.execute("""SELECT * FROM properties
+        WHERE owner_id = %s""", owner_id  )
+
     rows = cursor.fetchall()
-    return {"Property info: ": rows[i-1]}
+    return {"Properties list: ": rows}
 
-
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
-
-@app.get("/tenants")
-def get_tenants(i: int):
-    conn, cursor = get_connection()
-    cursor.execute("SELECT (id,name,rent) FROM tenants")
-    rows = cursor.fetchall()
-    conn.commit()
-    return {"Tenant info: ": rows[i-1]}
 
 @app.post("/tenants")
-def create_tenant(tenant: TenantCreate):
+def create_tenant(tenant: TenantCreate, current_user = Depends(get_current_user)):
+
+    owner_id = current_user["sub"]
     conn, cursor = get_connection()
 
-    cursor.execute("""INSERT INTO tenants (name, rent)
-    VALUES (%s, %s)
+    cursor.execute("""SELECT id FROM properties WHERE owner_id=%s AND id =%s""",
+                   (owner_id, tenant.property_id))
+    property_ = cursor.fetchone()
+
+    if property_ is None:
+        raise NoAccess_Exception
+
+    cursor.execute("""INSERT INTO tenants (property_id, name, phone, monthly_rent, rent_due_day, is_active)
+    VALUES (%s, %s, %s, %s,%s)
     RETURNING id;
     """,
-    (tenant.name, tenant.rent)
+    (tenant.property_id, tenant.name, tenant.phone, tenant.monthly_rent, tenant.rent_due_day, tenant.is_active)
     )
 
     tenantid = cursor.fetchone()[0]
     conn.commit()
 
     return {"message": "Tenant created successfully", "tenant id": tenantid}
+
+@app.get("/tenants")
+def get_tenants(current_user = Depends(get_current_user)):
+    owner_id = current_user["sub"]
+    conn, cursor = get_connection()
+    cursor.execute("""SELECT name, phone, property_id, monthly_rent, rent_due_day, is_active
+        FROM tenants
+        JOIN properties
+        ON teants.property_id = properties.id
+        WHERE
+        properties.owner_id = %s""", owner_id  )
+
+    rows = cursor.fetchall()
+    return {"Tenants list: ": rows}
+
+
+@app.post("/charges")
+def create_charge(charge: ChargeCreate,current_user = Depends(get_current_user)):
+    ...
+    owner_id = current_user["sub"]
