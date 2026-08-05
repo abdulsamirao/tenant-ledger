@@ -123,7 +123,7 @@ def create_charge(charge: ChargeCreate,current_user = Depends(get_current_user))
     ...
     owner_id = current_user["sub"]
     conn, cursor = get_connection()
-    
+
     cursor.execute("""SELECT id FROM properties
             JOIN tenants
             ON tenants.property_id = properties.id
@@ -141,3 +141,19 @@ def create_charge(charge: ChargeCreate,current_user = Depends(get_current_user))
     charge_id = cursor.fetchone()[0]
     conn.commit()
     return {"message": "charge created successfully", "charge_id": charge_id}
+
+@app.get("/tenants")
+def get_charges(current_user = Depends(get_current_user)):
+    owner_id = current_user["sub"]
+    conn, cursor = get_connection()
+    cursor.execute("""SELECT *
+        FROM charges
+        JOIN tenants 
+        ON charges.tenant_id = tenants.id
+        JOIN properties
+        ON tenants.property_id = properties.id
+        WHERE
+        properties.owner_id = %s""", owner_id  )
+
+    rows = cursor.fetchall()
+    return {"Charges list: ": rows}
