@@ -110,7 +110,7 @@ def get_tenants(current_user = Depends(get_current_user)):
     cursor.execute("""SELECT name, phone, property_id, monthly_rent, rent_due_day, is_active
         FROM tenants
         JOIN properties
-        ON teants.property_id = properties.id
+        ON tenants.property_id = properties.id
         WHERE
         properties.owner_id = %s""", owner_id  )
 
@@ -122,3 +122,22 @@ def get_tenants(current_user = Depends(get_current_user)):
 def create_charge(charge: ChargeCreate,current_user = Depends(get_current_user)):
     ...
     owner_id = current_user["sub"]
+    conn, cursor = get_connection()
+    
+    cursor.execute("""SELECT id FROM properties
+            JOIN tenants
+            ON tenants.property_id = properties.id
+            WHERE properties.owner_id=%s AND tenants.id =%s""",
+                       (owner_id, charge.tenant_id))
+    property_ = cursor.fetchone()
+    
+    if property_ is None:
+        raise NoAccess_Exception
+    
+    cursor.execute("""INSERT INTO charges (tenant_id, charge_type, description, billing_month, amount, due_date, status)
+    VALUES (%s,%s,%s,%s,%s,%s,%s)
+    RETURNIGN id;""", (charge.tenant_id, charge.charge_type, charge.description, charge.billing_month, charge.amount,
+                                       charge.due_date,charge.status))
+    charge_id = cursor.fetchone()[0]
+    conn.commit()
+    return {"message": "charge created successfully", "charge_id": charge_id}
