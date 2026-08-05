@@ -44,4 +44,4 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
             raise credentials_exception
     except InvalidTokenError:
         raise credentials_exception
-    return {"user_id": int(payload["sub"])}
+    return {"sub": int(payload["sub"])}
