@@ -2,6 +2,8 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from schemas import TenantCreate, UserCreate, PropertyCreate, UserLogin, ChargeCreate, PaymentCreate
 from db import get_connection
 from security import hash_password, verify_password, create_access_token, get_current_user, NoAccess_Exception
+from fastapi.security import OAuth2PasswordRequestForm
+
 
 app = FastAPI()
 
@@ -28,8 +30,9 @@ def create_user(user: UserCreate):
     return {"message": "User created successfully", "user_id": user_id}
 
 @app.post("/login")
-def user_login(user: UserLogin):
-    entered_username = user.username
+def user_login(form_data: OAuth2PasswordRequestForm = Depends()):
+    entered_username = form_data.username
+    entered_password = form_data.password
 
     conn,cursor = get_connection()
     cursor.execute("""SELECT id,username,password_hash FROM users WHERE users.username=%s"""
@@ -42,7 +45,7 @@ def user_login(user: UserLogin):
     
     stored_hash = row[2]
 
-    login_status = verify_password(user.password, stored_hash)
+    login_status = verify_password(entered_password, stored_hash)
 
     if not login_status:
         return {"message": "Login Failed. Invalid Username or Password"}
@@ -72,7 +75,7 @@ def get_properties(current_user = Depends(get_current_user)):
     owner_id = current_user["sub"]
     conn, cursor = get_connection()
     cursor.execute("""SELECT * FROM properties
-        WHERE owner_id = %s""", owner_id  )
+        WHERE owner_id = %s""", (owner_id,)  )
 
     rows = cursor.fetchall()
     return {"Properties list: ": rows}
@@ -92,7 +95,7 @@ def create_tenant(tenant: TenantCreate, current_user = Depends(get_current_user)
         raise NoAccess_Exception
 
     cursor.execute("""INSERT INTO tenants (property_id, name, phone, monthly_rent, rent_due_day, is_active)
-    VALUES (%s, %s, %s, %s,%s)
+    VALUES (%s, %s, %s, %s,%s,%s)
     RETURNING id;
     """,
     (tenant.property_id, tenant.name, tenant.phone, tenant.monthly_rent, tenant.rent_due_day, tenant.is_active)
@@ -107,12 +110,12 @@ def create_tenant(tenant: TenantCreate, current_user = Depends(get_current_user)
 def get_tenants(current_user = Depends(get_current_user)):
     owner_id = current_user["sub"]
     conn, cursor = get_connection()
-    cursor.execute("""SELECT name, phone, property_id, monthly_rent, rent_due_day, is_active
+    cursor.execute("""SELECT tenants.name, phone, properties.name, monthly_rent, rent_due_day, is_active
         FROM tenants
         JOIN properties
         ON tenants.property_id = properties.id
         WHERE
-        properties.owner_id = %s""", owner_id  )
+        properties.owner_id = %s""", (owner_id,)  )
 
     rows = cursor.fetchall()
     return {"Tenants list: ": rows}
@@ -123,7 +126,7 @@ def create_charge(charge: ChargeCreate,current_user = Depends(get_current_user))
     owner_id = current_user["sub"]
     conn, cursor = get_connection()
 
-    cursor.execute("""SELECT id FROM properties
+    cursor.execute("""SELECT properties.id FROM properties
             JOIN tenants
             ON tenants.property_id = properties.id
             WHERE properties.owner_id=%s AND tenants.id =%s""",
@@ -135,13 +138,13 @@ def create_charge(charge: ChargeCreate,current_user = Depends(get_current_user))
     
     cursor.execute("""INSERT INTO charges (tenant_id, charge_type, description, billing_month, amount, due_date, status)
     VALUES (%s,%s,%s,%s,%s,%s,%s)
-    RETURNIGN id;""", (charge.tenant_id, charge.charge_type, charge.description, charge.billing_month, charge.amount,
+    RETURNING id;""", (charge.tenant_id, charge.charge_type, charge.description, charge.billing_month, charge.amount,
                                        charge.due_date,charge.status))
     charge_id = cursor.fetchone()[0]
     conn.commit()
     return {"message": "charge created successfully", "charge_id": charge_id}
 
-@app.get("/tenants")
+@app.get("/charges")
 def get_charges(current_user = Depends(get_current_user)):
     owner_id = current_user["sub"]
     conn, cursor = get_connection()
@@ -152,7 +155,7 @@ def get_charges(current_user = Depends(get_current_user)):
         JOIN properties
         ON tenants.property_id = properties.id
         WHERE
-        properties.owner_id = %s""", owner_id  )
+        properties.owner_id = %s""", (owner_id,)  )
 
     rows = cursor.fetchall()
     return {"Charges list: ": rows}
@@ -162,24 +165,66 @@ def create_payment(payment: PaymentCreate, current_user = Depends(get_current_us
     owner_id = current_user["sub"]
     conn, cursor = get_connection()
     
-    cursor.execute("""SELECT id FROM charges
+    cursor.execute("""SELECT charges.amount FROM charges
             JOIN tenants
             ON charges.tenant_id = tenants.id
             JOIN properties
-            ON tenants.property_id = property.id
+            ON tenants.property_id = properties.id
             WHERE properties.owner_id=%s AND charges.id =%s""",
                         (owner_id, payment.charge_id))
     charge_ = cursor.fetchone()
     
     if charge_ is None:
         raise NoAccess_Exception
-    
+
+    charge_amount = charge_[0]
+
+    # calculate total amount paid so far
+    cursor.execute("""
+        SELECT COALESCE(SUM(amount), 0)
+        FROM payments
+        WHERE charge_id = %s
+    """, (payment.charge_id,))
+
+    total_paid = float(cursor.fetchone()[0])
+
+    if total_paid + payment.amount > charge_amount:
+        raise HTTPException(
+            status_code=400,
+            detail="Payment exceeds remaining balance."
+        )
+
     cursor.execute("""INSERT INTO payments (charge_id, amount, payment_method, payment_date, notes)
     VALUES (%s,%s,%s,%s,%s)
-    RETURNIGN id;""", (payment.charge_id, payment.amount, payment.payment_method, payment.payment_date, payment.notes))
+    RETURNING id;""", (payment.charge_id, payment.amount, payment.payment_method, payment.payment_date, payment.notes))
+
     payment_id = cursor.fetchone()[0]
+
+    new_total_paid = total_paid + payment.amount
+
+
+    # Decide new status
+    if new_total_paid >= charge_amount:
+        status = "PAID"
+    else:
+        status = "PARTIALLY_PAID"
+
+    # Update charge
+    cursor.execute("""
+        UPDATE charges
+        SET status = %s,
+            updated_at = NOW()
+        WHERE id = %s
+    """, (status, payment.charge_id))
+
+
     conn.commit()
-    return {"message": "Payment recorded successfully", "payment_id": payment_id}
+    return {
+        "message": "Payment recorded successfully",
+        "payment_id": payment_id,
+        "total_paid": new_total_paid,
+        "remaining_balance": max(float(charge_amount) - new_total_paid, 0)
+    }
 
 
 @app.get("/payments")
@@ -189,13 +234,13 @@ def get_payments(current_user = Depends(get_current_user)):
     cursor.execute("""SELECT *
         FROM payments
         JOIN charges
-        ON payments.charge_id = charge.id
+        ON payments.charge_id = charges.id
         JOIN tenants
-        ON charge.tenant_id = tenants.id
+        ON charges.tenant_id = tenants.id
         JOIN properties
         ON tenants.property_id = properties.id
         WHERE
-        properties.owner_id = %s""", owner_id  )
+        properties.owner_id = %s""", (owner_id,)  )
 
     rows = cursor.fetchall()
     return {"Charges list: ": rows}
