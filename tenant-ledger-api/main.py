@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, status
-from schemas import TenantCreate, UserCreate, PropertyCreate, UserLogin, ChargeCreate
+from schemas import TenantCreate, UserCreate, PropertyCreate, UserLogin, ChargeCreate, PaymentCreate
 from db import get_connection
 from security import hash_password, verify_password, create_access_token, get_current_user, NoAccess_Exception
 
@@ -120,7 +120,6 @@ def get_tenants(current_user = Depends(get_current_user)):
 
 @app.post("/charges")
 def create_charge(charge: ChargeCreate,current_user = Depends(get_current_user)):
-    ...
     owner_id = current_user["sub"]
     conn, cursor = get_connection()
 
@@ -150,6 +149,49 @@ def get_charges(current_user = Depends(get_current_user)):
         FROM charges
         JOIN tenants 
         ON charges.tenant_id = tenants.id
+        JOIN properties
+        ON tenants.property_id = properties.id
+        WHERE
+        properties.owner_id = %s""", owner_id  )
+
+    rows = cursor.fetchall()
+    return {"Charges list: ": rows}
+
+@app.post("/payments")
+def create_payment(payment: PaymentCreate, current_user = Depends(get_current_user)):
+    owner_id = current_user["sub"]
+    conn, cursor = get_connection()
+    
+    cursor.execute("""SELECT id FROM charges
+            JOIN tenants
+            ON charges.tenant_id = tenants.id
+            JOIN properties
+            ON tenants.property_id = property.id
+            WHERE properties.owner_id=%s AND charges.id =%s""",
+                        (owner_id, payment.charge_id))
+    charge_ = cursor.fetchone()
+    
+    if charge_ is None:
+        raise NoAccess_Exception
+    
+    cursor.execute("""INSERT INTO payments (charge_id, amount, payment_method, payment_date, notes)
+    VALUES (%s,%s,%s,%s,%s)
+    RETURNIGN id;""", (payment.charge_id, payment.amount, payment.payment_method, payment.payment_date, payment.notes))
+    payment_id = cursor.fetchone()[0]
+    conn.commit()
+    return {"message": "Payment recorded successfully", "payment_id": payment_id}
+
+
+@app.get("/payments")
+def get_payments(current_user = Depends(get_current_user)):
+    owner_id = current_user["sub"]
+    conn, cursor = get_connection()
+    cursor.execute("""SELECT *
+        FROM payments
+        JOIN charges
+        ON payments.charge_id = charge.id
+        JOIN tenants
+        ON charge.tenant_id = tenants.id
         JOIN properties
         ON tenants.property_id = properties.id
         WHERE
