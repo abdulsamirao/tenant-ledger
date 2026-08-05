@@ -4,6 +4,7 @@ from typing import Literal, Optional
 
 ChargeType = Literal['RENT', 'ELECTRICITY', 'GAS', 'WATER', 'INTERNET', 'OTHER']
 ChargeStatus = Literal['UNPAID', 'PARTIALLY_PAID', 'PAID']
+PaymentMethod = Literal['CASH','BANK_TRANSFER','EASYPAISA', 'JAZZCASH','OTHER']
 
 
 class UserLogin(BaseModel):
@@ -36,6 +37,14 @@ class ChargeCreate(BaseModel):
     amount: float = Field(gt=0)
     due_date: date
     status: ChargeStatus
+
+class PaymentCreate(BaseModel):
+    ...
+    charge_id: int
+    amount: float = Field(gt=0)
+    payment_method: PaymentMethod
+    payment_date: date
+    notes: str | None
 
 
 
