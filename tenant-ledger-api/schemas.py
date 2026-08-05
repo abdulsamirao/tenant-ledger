@@ -16,7 +16,6 @@ class UserCreate(BaseModel):
     password: str
 
 class PropertyCreate(BaseModel):
-    owner_id: int
     name: str
     address: str
 
@@ -39,7 +38,6 @@ class ChargeCreate(BaseModel):
     status: ChargeStatus
 
 class PaymentCreate(BaseModel):
-    ...
     charge_id: int
     amount: float = Field(gt=0)
     payment_method: PaymentMethod
